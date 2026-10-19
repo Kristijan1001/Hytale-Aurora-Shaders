@@ -43,7 +43,7 @@ The cube is computed by the deferred pass's vertex shader (three vertices per dr
 ## Coloured light fog
 
 **Light shafts → Coloured light fog** (off by default; requires Colored area lights) lets torches, lanterns, glowing ores and coloured bulbs light the air around them in their own colour: a warm glow in a torch-lit cave, coloured haze around a bulb.
-- **The march:** a short march along each view ray (**Light fog quality**: 4/6/8 steps, up to **Light fog range** blocks). At each step it sums the lights listed for that spot's 16-block light cell, the same culled list surfaces use. Each frame evaluates half of the steps, alternating, and a cell listing more lights than an eighth of the **Area light budget** (by lava, hundreds) contributes a random share of them, weighted so the average is unchanged. The anti-aliasing averages both.
+- **The march:** a short march along each view ray (**Light fog quality**: 4/6/8 steps, up to **Light fog range** blocks). At each step it sums the lights listed for that spot's 16-block light cell, the same culled list surfaces use. A cell listing more lights than an eighth of the **Area light budget** (by lava, hundreds) contributes a random share of them, weighted so the average is unchanged; the anti-aliasing averages it.
 - **Walls:** one of those lights is picked by brightness and checked against the voxel grid, so walls block the glow and a doorway lets a beam through.
 - **Removed lights:** they fade with the light cache, leaving no coloured air behind.
 

@@ -685,18 +685,9 @@ vec3 AU_LightFog(vec3 playerPos, float dither, vec2 noise)
     bool tiled = uHookLocalLightTiles != 0;
     bool expandedTiles = uHookLocalLightTiles >= 2;
     vec3 fog = vec3(0.0);
-    // Half the steps each frame, each counting double: the same light on average for half the light
-    // lookups and wall checks (by lava every step has lights). Which half is chosen per 8x8 pixel
-    // block and frame: neighbouring pixels run together on the GPU, so a per-pixel choice saves nothing.
-    uvec2 block = uvec2(gl_FragCoord.xy) >> 3u;
-    uint blockHash = block.x * 0x8da6b343u ^ block.y * 0xd8163841u;
-    blockHash ^= blockHash >> 13;
-    blockHash *= 0x7feb352du;
-    int skipped = int((blockHash >> 16) + uint(uHookFrame)) & 1;
     int countedTile = -1;   // steps in the same cell share its light count
     uint countedLights = 0u;
     for (int i = 0; i < steps; i++) {
-        if (((i + skipped) & 1) == 0) continue;
         vec3 origin = CameraPosition + dir * ((float(i) + dither) * stepLength);
         vec3 total = vec3(0.0), chosenPosition = vec3(0.0);
         ivec3 chosenBlock = ivec3(0);
@@ -746,7 +737,7 @@ vec3 AU_LightFog(vec3 playerPos, float dither, vec2 noise)
                                    noise.y, hitBlock, hitNormal, hitDistance, hitCell);
         if (!blocked || all(equal(hitBlock, chosenBlock))) fog += total;
     }
-    return fog * (2.0 * stepLength * AU_LIGHT_FOG_DENSITY * 0.015 * AU_LOCAL_LIGHT_STRENGTH);
+    return fog * (stepLength * AU_LIGHT_FOG_DENSITY * 0.015 * AU_LOCAL_LIGHT_STRENGTH);
 }
 #endif
 

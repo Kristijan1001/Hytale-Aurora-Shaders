@@ -41,7 +41,7 @@ https://github.com/user-attachments/assets/55316aae-4729-4537-8840-b3e5d5a30a6e
 
 # Aurora Shaders for Hytale
 
-[Download 1.5.1](../../releases/tag/v1.5.1) · [Changelog](CHANGELOG.md)
+[Download 1.5.2](../../releases/tag/v1.5.2) · [Changelog](CHANGELOG.md)
 
 A shader pack for Hytale: soft sun shadows, volumetric clouds, light shafts through trees and
 caves, reflective water, ray-traced bounce light and ambient occlusion, rain puddles, rainbows,
