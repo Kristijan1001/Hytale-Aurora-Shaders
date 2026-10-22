@@ -344,6 +344,12 @@ static void expand(Str *out, const char *text, int depth)
                             str_cstr(out, "\n#undef AU_DLSS\n#define AU_DLSS 0\n");
                     }
 #endif
+#ifdef __APPLE__
+                    // macOS OpenGL 4.1 has no image load/store: no voxel grid, no image-based GI history.
+                    if (!strcmp(name, "AU_Settings.glsl"))
+                        str_cstr(out, "#undef AU_LOCAL_LIGHTS\n#define AU_LOCAL_LIGHTS 0\n#undef AU_PATH_TRACING\n#define AU_PATH_TRACING 0\n"
+                                      "#undef AU_GI_DENOISER\n#define AU_GI_DENOISER 0\n#if AU_SSS_VOXEL == 1\n#undef AU_SSS_VOXEL\n#define AU_SSS_VOXEL 0\n#endif\n");
+#endif
                     str_cstr(out, "\n// END ");
                     str_cstr(out, name);
                     str_cstr(out, "\n");

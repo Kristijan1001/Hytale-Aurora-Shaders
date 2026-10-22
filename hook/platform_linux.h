@@ -1,5 +1,5 @@
 // Small POSIX implementation of the OS services used by the shared shader engine.
-// Windowing/input lives in linux_runtime.h and uses the game's SDL3 on X11 or Wayland.
+// Windowing/input lives in linux_runtime.h and uses the game's SDL3 on X11, Wayland or Cocoa.
 #ifndef AURORA_PLATFORM_LINUX_H
 #define AURORA_PLATFORM_LINUX_H
 #define _GNU_SOURCE
@@ -14,10 +14,15 @@
 #include <pthread.h>
 #include <time.h>
 #include <sys/stat.h>
-#include <sys/inotify.h>
 #include <unistd.h>
 #include <dlfcn.h>
 #include <cairo/cairo.h>
+#ifdef __APPLE__
+#include <dirent.h>
+#define st_mtim st_mtimespec
+#else
+#include <sys/inotify.h>
+#endif
 
 #define WINAPI
 #define APIENTRY

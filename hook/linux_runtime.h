@@ -23,10 +23,14 @@ __attribute__((used)) static const char linux_proxy_marker[] = "AURORA_SDL_PROXY
 
 static void *linux_real_dlsym(void *handle, const char *name)
 {
+#ifdef __APPLE__
+    return dlsym(handle, name); // the macOS build is proxy-only and never defines dlsym
+#else
     // x86_64 glibc's original symbol version predates Ubuntu's supported releases.
     typedef void *(*Lookup)(void *, const char *);
     Lookup lookup = (Lookup)dlvsym(RTLD_NEXT, "dlsym", "GLIBC_2.2.5");
     return lookup ? lookup(handle, name) : NULL;
+#endif
 }
 
 static void linux_init(void);
@@ -61,6 +65,12 @@ static PROC linux_gl_proc(const char *name)
     return linux_sdl_getproc && name ? linux_sdl_getproc(name) : NULL;
 }
 
+#ifdef __APPLE__
+#define LINUX_SDL_ORIGINAL "/libSDL3.aurora-original.dylib"
+#else
+#define LINUX_SDL_ORIGINAL "/libSDL3.aurora-original.so"
+#endif
+
 static void linux_init(void)
 {
 #if AU_SDL_PROXY
@@ -70,8 +80,8 @@ static void linux_init(void)
         char *slash = strrchr(original, '/');
         if (slash) {
             *slash = 0;
-            if (strlen(original) + sizeof("/libSDL3.aurora-original.so") < sizeof original) {
-                strcat(original, "/libSDL3.aurora-original.so");
+            if (strlen(original) + sizeof(LINUX_SDL_ORIGINAL) < sizeof original) {
+                strcat(original, LINUX_SDL_ORIGINAL);
                 linux_sdl_handle = dlopen(original, RTLD_NOW | RTLD_LOCAL);
             }
         }
@@ -98,6 +108,10 @@ static void linux_init(void)
         if (dladdr((void *)linux_init, &info) && realpath(info.dli_fname, path)) {
             char *slash = strrchr(path, '/');
             if (slash) *slash = 0;
+#ifdef __APPLE__
+            // Keep the pack out of the signed bundle: Client/Hytale.app/Contents/MacOS -> Client.
+            for (int level = 0; level < 3 && (slash = strrchr(path, '/')); level++) *slash = 0;
+#endif
 #if AU_SDL_PROXY
             const char *suffix = "/.aurora/shaderpack";
 #else
@@ -122,6 +136,7 @@ static void linux_init(void)
     r_glBindTexture = (PFN_glBindTexture)linux_gl_proc("glBindTexture");
     r_glDrawArrays = (PFN_glDrawArrays)linux_gl_proc("glDrawArrays");
     r_glDrawElements = (PFN_glDrawElements)linux_gl_proc("glDrawElements");
+#ifndef __APPLE__
     linux_notify = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
     if (linux_notify >= 0) {
         const char *dirs[] = {"programs", "include"};
@@ -132,6 +147,7 @@ static void linux_init(void)
                 logf_("cannot watch %s for shader edits", path);
         }
     }
+#endif
     logf_("Aurora native Linux SDL3 hook loaded (%s); DLSS built=%d; dump=%d",
 #if AU_SDL_PROXY
           "automatic proxy",
@@ -141,19 +157,56 @@ static void linux_init(void)
           AU_HAS_DLSS, g_dump);
 }
 
+#ifdef __APPLE__
+// macOS has no inotify: fingerprint the names, sizes and times in programs/ and include/ instead.
+static uint64_t mac_pack_stamp(void)
+{
+    uint64_t stamp = 0;
+    const char *dirs[] = {"programs", "include"};
+    for (int i = 0; i < 2; i++) {
+        wchar_t wide[MAX_PATH];
+        char folder[MAX_PATH], file[MAX_PATH * 2];
+        pack_path(wide, dirs[i]);
+        au_to_utf8(folder, sizeof folder, wide);
+        DIR *dir = opendir(folder);
+        if (!dir) continue;
+        for (struct dirent *entry; (entry = readdir(dir)); ) {
+            struct stat info;
+            snprintf(file, sizeof file, "%s/%s", folder, entry->d_name);
+            if (stat(file, &info) == 0)
+                stamp += fnv1a(entry->d_name, strlen(entry->d_name)) ^ (uint64_t)info.st_size
+                       ^ ((uint64_t)info.st_mtim.tv_sec * 1000000000u + (uint64_t)info.st_mtim.tv_nsec);
+        }
+        closedir(dir);
+    }
+    return stamp;
+}
+#endif
+
 static void linux_input(void *window)
 {
     const int keys[] = {menu_hotkey_scan(g_menuHotkey), 82, 81, 80, 79, 41, 75, 78, 72};
     static bool down[9];
     static double next[9];
     double t = now_sec();
+#ifdef __APPLE__
+    static double pollAt;
+    static uint64_t stamp;
+    if (t >= pollAt) {
+        uint64_t current = mac_pack_stamp();
+        if (pollAt && current != stamp) linux_reload_at = t + 0.4;
+        stamp = current;
+        pollAt = t + 0.5;
+    }
+#else
     if (linux_notify >= 0) {
         char events[4096];
         while (read(linux_notify, events, sizeof events) > 0) linux_reload_at = t + 0.4;
-        if (linux_reload_at && t >= linux_reload_at) {
-            linux_reload_at = 0;
-            InterlockedExchange(&g_reloadRequested, 1);
-        }
+    }
+#endif
+    if (linux_reload_at && t >= linux_reload_at) {
+        linux_reload_at = 0;
+        InterlockedExchange(&g_reloadRequested, 1);
     }
     if (g_menuWriteAt && t >= g_menuWriteAt) {
         g_menuWriteAt = 0;

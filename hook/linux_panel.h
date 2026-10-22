@@ -13,6 +13,9 @@ typedef unsigned COLORREF;
 
 static int linux_panel_resize(int w, int h)
 {
+#ifdef __APPLE__
+    if (!&cairo_create) return 0; // cairo is weak-linked from Homebrew: no cairo, no menu, game still runs
+#endif
     if (g_ovBmp && g_ovBits && g_ovW == w && g_ovH == h) return 1;
     if (g_ovDC) cairo_destroy(g_ovDC);
     if (g_ovBmp) cairo_surface_destroy(g_ovBmp);
