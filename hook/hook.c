@@ -393,7 +393,26 @@ static char *build_override(const char *orig, int idx)
         str_add(&out, orig, n); // just the #version line
     }
     str_cstr(&out, "#define HYTALE_SHADERPACK 1\n");
+#ifdef __APPLE__
+    // Apple's compiler rejects #extension after any code, and the pack's additions come before the
+    // game's own directives. All of them are ": enable", so hoisting them out of #if blocks is safe.
+    Str body = {0};
+    expand(&body, main, 0);
+    for (char *line = body.p; line && *line; ) {
+        char *end = strchr(line, '\n');
+        size_t length = end ? (size_t)(end - line) : strlen(line);
+        if (!strncmp(line + strspn(line, " \t"), "#extension", 10)) {
+            str_add(&out, line, length);
+            str_cstr(&out, "\n");
+            memset(line, ' ', length);
+        }
+        line = end ? end + 1 : NULL;
+    }
+    if (body.n) str_add(&out, body.p, body.n);
+    free(body.p);
+#else
     expand(&out, main, 0);
+#endif
     free(main);
     return out.p;
 }
