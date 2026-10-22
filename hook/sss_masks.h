@@ -1,4 +1,4 @@
-#define SSS_MASK_UNIT 16
+#define SSS_MASK_UNIT HOOK_UNIT_BASE
 #define SSS_MASK_MAX_RECORDS 2047
 
 typedef struct { unsigned hash; unsigned char pixels[1024]; } SSSMaskRecord;

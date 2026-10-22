@@ -979,7 +979,16 @@ static int relink_program(GLuint prog, ProgRec *p, int useOverrides)
 // program on a spare texture unit, e.g. the sun shadow map for volumetric light.
 
 #define GL_TEXTURE0 0x84C0
+#ifdef __APPLE__
+// Hytale's macOS build binds its own textures to units 16-18. A pack sampler of another type on
+// the same unit is an error there and the draw is dropped (water vanished), so the hook's own
+// textures (materials, emission, SSS masks) start at 32, which macOS's 80 combined units allow.
+#define MAX_UNITS 48
+#define HOOK_UNIT_BASE 32
+#else
 #define MAX_UNITS 32
+#define HOOK_UNIT_BASE 16
+#endif
 typedef struct { GLenum target; GLuint tex; GLuint sampler; } UnitState;
 static UnitState g_units[MAX_UNITS];
 static GLuint g_activeUnit;
@@ -1656,7 +1665,7 @@ static void gi_draw(GLenum mode, GLint first, GLsizei count)
 // small texture array, one RG8 texel per tile (class, level), bound for the terrain shader as
 // uHookMaterials.
 
-#define MAT_UNIT 18
+#define MAT_UNIT (HOOK_UNIT_BASE + 2)
 #define GL_TEXTURE_2D_ARRAY_ 0x8C1A
 #define GL_TEXTURE_BINDING_2D_ARRAY_ 0x8C1D
 #define GL_TEXTURE_WIDTH_ 0x1000
