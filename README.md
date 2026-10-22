@@ -97,6 +97,45 @@ the check fails it installs normally and the pack's temporal anti-aliasing is us
 has passed its build and bridge checks but has not yet been verified in gameplay; see
 [Linux validation](docs/dlss-diagnostics.md#linux-validation).
 
+### macOS (Apple Silicon)
+
+The macOS build targets **Apple Silicon Macs** with the native client from the official
+launcher. It is the Linux SDL3 proxy, built for arm64. Install Apple's command line tools and
+two Homebrew packages, close Hytale, then run the installer from this folder:
+
+```bash
+xcode-select --install
+brew install cairo pkg-config
+./install.sh
+```
+
+**Start Hytale through the launcher as usual.** The first run creates `build/venv` and installs
+Pillow into it; shader preparation uses it to read the game's block textures.
+
+The installer builds `build/libaurora-sdl.dylib` and installs it as `libSDL3.dylib` in
+`Hytale.app/Contents/MacOS`. The original library stays there unchanged as
+`libSDL3.aurora-original.dylib`, and the proxy re-exports it. Shaders and settings go to
+`Client/.aurora/shaderpack`, next to `Hytale.app` rather than inside it.
+
+Hytale's executable is signed with the hardened runtime, which only loads libraries signed by
+the same developer. The installer therefore re-signs `Hytale.app` ad hoc without the hardened
+runtime, keeping its identifier and entitlements. Hypixel's signed executable and seal are saved
+first, and uninstalling puts them back, so the game ends up byte-for-byte as it was.
+
+OpenGL on macOS stops at version 4.1, which has no image load/store. The features built on it
+stay off: **Colored area lights**, **Coloured light fog**, **Path tracing**, the voxel
+**Scattering method**, GI denoising and DLSS. The hook disables them when it compiles the
+shaders, so those menu options do nothing on a Mac. Mac keyboards have no Home or Pause key:
+**fn+Left** opens the menu, and **General → Shaders** switches the pack off for comparison.
+
+- **After a game update:** close Hytale and run `./install.sh` again.
+- **Custom game location:** `./install.sh --client-dir "/path/to/Client"`, the folder that
+  holds `Hytale.app`.
+- **Uninstall:** `./install.sh --uninstall` restores the original library and Hypixel's
+  signature. Installed settings are kept in `Client/.aurora/shaderpack`.
+
+Details, including what was tested: [macOS notes](docs/macos.md).
+
 ### Windows
 
 1. Download the latest release zip from the [Releases](../../releases) page and extract it
@@ -132,10 +171,10 @@ The binding is saved across restarts and is not changed by profiles. **Reset sel
 | Platform | Mouse editing |
 |---|---|
 | **Windows** | Hold **Alt** to click tabs and switches, drag sliders, and scroll. |
-| **Linux** | Hold either **Ctrl** key for the same controls. **Alt** stays available to your window manager. |
+| **Linux, macOS** | Hold either **Ctrl** key for the same controls. **Alt** stays available to your window manager. |
 
 While editing, mouse input goes to the menu instead of moving the camera. Release the modifier
-to resume normal control. On Linux, closing the menu or switching away from the game also
+to resume normal control. On Linux and macOS, closing the menu or switching away from the game also
 restores normal input; pointer positions account for display scaling.
 
 These keyboard shortcuts do not require Alt or Ctrl:
@@ -155,7 +194,7 @@ the search text only. Tab, Enter and Space do not navigate or change settings.
 Enter only confirms text entry when naming a saved preset.
 Changed values are mint, and the selected option's default is always shown in the footer. Settings are saved in
 `shaderpack/include/AU_Settings.glsl`, which you can also edit by hand while the game runs (saving
-the file reloads the shaders). On Linux, edit the installed copy at
+the file reloads the shaders). On Linux and macOS, edit the installed copy at
 `Client/.aurora/shaderpack/include/AU_Settings.glsl`.
 
 The compact left-side menu leaves the centre of the game visible and does not capture movement
@@ -186,7 +225,7 @@ NVIDIA support use Original as the fallback for RTX profiles.
 Coloured area lights are enabled only by **Ultra** in either quality list; you can still toggle them manually.
 
 **Save current settings as...** lets you name and save up to 16 custom presets. On Windows,
-hold **Alt** while typing the name; on Linux, type without holding Ctrl. Press Enter to confirm,
+hold **Alt** while typing the name; on Linux and macOS, type without holding Ctrl. Press Enter to confirm,
 or hold your platform's mouse modifier and click **Save name**. Presets are stored in
 `shaderpack/presets/` and retained during updates. Applying a built-in profile resets other
 shader-menu settings to their defaults; saving a custom preset keeps your current settings.
@@ -352,6 +391,10 @@ On Linux, `./build.sh` builds `build/libaurora-sdl.so` (automatic loading) and
 `python3` and `python3-pil`. Build on the target distribution rather than copying a shared
 library built against a newer glibc onto an older Ubuntu release.
 
+On macOS, `./build.sh` builds `build/libaurora-sdl.dylib` with Apple's compiler. It needs the
+Xcode command line tools and Homebrew's `cairo` and `pkg-config`. Cairo draws the menu and is
+linked weakly: if it is removed later, the game still starts, only without the menu.
+
 On Windows:
 
 The release includes a prebuilt `opengl32.dll`. If you would rather not run a DLL you did not
@@ -366,8 +409,8 @@ installs. Without `-Build` the installer takes the newer of `bin\opengl32.dll` a
 ## How it works
 
 Aurora replaces selected Hytale shaders as the game loads them, using an OpenGL proxy on
-Windows or an SDL3 proxy on Linux. The installer extracts the original shader code from your
-game; the executable stays untouched.
+Windows or an SDL3 proxy on Linux and macOS. The installer extracts the original shader code
+from your game; the executable stays untouched, although on macOS it is re-signed.
 
 The shaders use the game's colour, depth, normals and lighting to render the scene. Changes
 made through the menu or shader files reload while you play.
@@ -385,13 +428,16 @@ made through the menu or shader files reload while you play.
   does not install system packages or download a compiler for you.
 - **Linux menu too large or clicks misaligned:** update the source, close Hytale and run
   `./install.sh --build`. Use **Ctrl**, not Alt, for mouse editing.
+- **macOS looks like vanilla, or Hytale stops starting, after a game update:** close Hytale
+  and run `./install.sh` again. `Client/.aurora/shaderpack/hook.log` should mention
+  `automatic proxy`. `./install.sh --uninstall` returns the game to Hypixel's signed original.
 - **Flatpak reports a missing library or glibc version:** rebuild with `./install.sh --build` on
   the machine where you play and ensure the Hytale Flatpak runtime is up to date.
 - **Looks like vanilla:** press Pause once (the shaders may be toggled off), and check that
   `opengl32.dll` sits next to `HytaleClient.exe`. After a game update, run `Install.bat` again.
 - **Something renders wrong after a game update:** a shader that fails to compile falls back to
   the game's own; the compiler log is in `shaderpack/errors/`, and `shaderpack/hook.log` records
-  what the hook did. On Linux these files are under `Client/.aurora/shaderpack`.
+  what the hook did. On Linux and macOS these files are under `Client/.aurora/shaderpack`.
   Please open an issue with those files.
 - **Antivirus warning:** some antivirus tools flag DLLs that load next to a game. Use
   `Build From Source.bat` to build the DLL from the source yourself.

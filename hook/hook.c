@@ -344,6 +344,12 @@ static void expand(Str *out, const char *text, int depth)
                             str_cstr(out, "\n#undef AU_DLSS\n#define AU_DLSS 0\n");
                     }
 #endif
+#ifdef __APPLE__
+                    // macOS OpenGL 4.1 has no image load/store: no voxel grid, no image-based GI history.
+                    if (!strcmp(name, "AU_Settings.glsl"))
+                        str_cstr(out, "#undef AU_LOCAL_LIGHTS\n#define AU_LOCAL_LIGHTS 0\n#undef AU_PATH_TRACING\n#define AU_PATH_TRACING 0\n"
+                                      "#undef AU_GI_DENOISER\n#define AU_GI_DENOISER 0\n#if AU_SSS_VOXEL == 1\n#undef AU_SSS_VOXEL\n#define AU_SSS_VOXEL 0\n#endif\n");
+#endif
                     str_cstr(out, "\n// END ");
                     str_cstr(out, name);
                     str_cstr(out, "\n");
@@ -387,7 +393,26 @@ static char *build_override(const char *orig, int idx)
         str_add(&out, orig, n); // just the #version line
     }
     str_cstr(&out, "#define HYTALE_SHADERPACK 1\n");
+#ifdef __APPLE__
+    // Apple's compiler rejects #extension after any code, and the pack's additions come before the
+    // game's own directives. All of them are ": enable", so hoisting them out of #if blocks is safe.
+    Str body = {0};
+    expand(&body, main, 0);
+    for (char *line = body.p; line && *line; ) {
+        char *end = strchr(line, '\n');
+        size_t length = end ? (size_t)(end - line) : strlen(line);
+        if (!strncmp(line + strspn(line, " \t"), "#extension", 10)) {
+            str_add(&out, line, length);
+            str_cstr(&out, "\n");
+            memset(line, ' ', length);
+        }
+        line = end ? end + 1 : NULL;
+    }
+    if (body.n) str_add(&out, body.p, body.n);
+    free(body.p);
+#else
     expand(&out, main, 0);
+#endif
     free(main);
     return out.p;
 }
@@ -954,7 +979,16 @@ static int relink_program(GLuint prog, ProgRec *p, int useOverrides)
 // program on a spare texture unit, e.g. the sun shadow map for volumetric light.
 
 #define GL_TEXTURE0 0x84C0
+#ifdef __APPLE__
+// Hytale's macOS build binds its own textures to units 16-18. A pack sampler of another type on
+// the same unit is an error there and the draw is dropped (water vanished), so the hook's own
+// textures (materials, emission, SSS masks) start at 32, which macOS's 80 combined units allow.
+#define MAX_UNITS 48
+#define HOOK_UNIT_BASE 32
+#else
 #define MAX_UNITS 32
+#define HOOK_UNIT_BASE 16
+#endif
 typedef struct { GLenum target; GLuint tex; GLuint sampler; } UnitState;
 static UnitState g_units[MAX_UNITS];
 static GLuint g_activeUnit;
@@ -1631,7 +1665,7 @@ static void gi_draw(GLenum mode, GLint first, GLsizei count)
 // small texture array, one RG8 texel per tile (class, level), bound for the terrain shader as
 // uHookMaterials.
 
-#define MAT_UNIT 18
+#define MAT_UNIT (HOOK_UNIT_BASE + 2)
 #define GL_TEXTURE_2D_ARRAY_ 0x8C1A
 #define GL_TEXTURE_BINDING_2D_ARRAY_ 0x8C1D
 #define GL_TEXTURE_WIDTH_ 0x1000

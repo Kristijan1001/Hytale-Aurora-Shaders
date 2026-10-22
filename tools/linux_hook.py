@@ -5,12 +5,19 @@ import os
 import re
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import tempfile
 
 OWNER = "aurora-shaders-sdl-proxy-v1"
 MARKER = b"AURORA_SDL_PROXY_V1"
 DLSS_MARKER = b"AURORA_LINUX_DLSS_V1"
-BACKUP = "libSDL3.aurora-original.so"
+MAC = sys.platform == "darwin"
+# On macOS the libraries live inside the signed app bundle; the pack stays outside, in Client/.aurora.
+MACOS = "Hytale.app/Contents/MacOS/"
+EXECUTABLE, LIBRARY, BACKUP = ((MACOS + "HytaleClient", MACOS + "libSDL3.dylib", MACOS + "libSDL3.aurora-original.dylib")
+                               if MAC else ("HytaleClient", "libSDL3.so", "libSDL3.aurora-original.so"))
+SIGNED = (EXECUTABLE, "Hytale.app/Contents/_CodeSignature/CodeResources")   # what re-signing rewrites
 
 
 def digest(path):
@@ -25,7 +32,38 @@ def is_proxy(path):
     return path.is_file() and MARKER in path.read_bytes()
 
 
+def is_native(header):
+    """The game's own binary format: arm64 Mach-O on macOS, x86_64 ELF on Linux."""
+    if MAC:
+        return header[:8] == b"\xcf\xfa\xed\xfe\x0c\x00\x00\x01"
+    return len(header) >= 20 and header[:6] == b"\x7fELF\x02\x01" and header[18:20] == b"\x3e\x00"
+
+
+def resign(client):
+    """Ad-hoc signature without the hardened runtime, whose library validation would reject the proxy."""
+    subprocess.run(["codesign", "--force", "--sign", "-", "--preserve-metadata=identifier,entitlements",
+                    str(client / "Hytale.app")], check=True)
+
+
+def save_signature(client, directory):
+    """Keep Hypixel's signed executable and seal, so uninstall restores them byte for byte."""
+    if subprocess.run(["codesign", "--verify", "--strict", str(client / "Hytale.app")]).returncode:
+        raise ValueError("Hytale's code signature is not intact; repair the game in the launcher first")
+    (directory / "signature").mkdir(exist_ok=True)
+    for name in SIGNED:
+        atomic_copy(client / name, directory / "signature" / Path(name).name)
+
+
+def restore_signature(client, directory):
+    for name in SIGNED:
+        atomic_copy(directory / "signature" / Path(name).name, client / name)
+
+
 def require_stopped(client):
+    if MAC:
+        if subprocess.run(["pgrep", "-x", "HytaleClient"], capture_output=True).returncode == 0:
+            raise ValueError("Close Hytale before installing or removing the automatic hook")
+        return
     executable = str(client / "HytaleClient")
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
@@ -106,7 +144,11 @@ def write_state(directory, saved):
 def install(client, proxy, pack):
     require_stopped(client)
     directory, saved = state(client)
-    library, backup = client / "libSDL3.so", client / BACKUP
+    library, backup = client / LIBRARY, client / BACKUP
+    if MAC and saved and is_proxy(library) and digest(client / EXECUTABLE) != saved.get("signed_sha256"):
+        # An update replaced the executable under the hook: undo first so its new signature is saved.
+        uninstall(client)
+        directory, saved = state(client)
     if library.is_symlink() or backup.is_symlink():
         raise ValueError("SDL3 or its backup is a symlink; refusing to replace it")
     if not is_proxy(proxy):
@@ -123,8 +165,8 @@ def install(client, proxy, pack):
     original = backup if hooked else library
     with original.open("rb") as stream:
         header = stream.read(20)
-    if len(header) < 20 or header[:6] != b"\x7fELF\x02\x01" or header[18:20] != b"\x3e\x00":
-        raise ValueError("Expected Hytale's native x86_64 SDL3 library")
+    if not is_native(header):
+        raise ValueError("Expected Hytale's native SDL3 library")
     record = {"owner": OWNER, "original_sha256": digest(original),
               "proxy_sha256": digest(proxy), "installed": True}
     directory.mkdir(exist_ok=True)
@@ -157,15 +199,26 @@ def install(client, proxy, pack):
         old_pack = stage / "previous-pack"
         if installed_pack.exists():
             installed_pack.replace(old_pack)
+        signed = False
         try:
             (stage / "shaderpack").replace(installed_pack)
+            if MAC and not hooked:
+                backup.unlink(missing_ok=True)   # our copy, left when an update replaced the proxy, is outside the new seal
+                save_signature(client, directory)
             write_state(directory, record)
             if not hooked:
                 atomic_copy(stage / "original.so", backup)
             atomic_copy(stage / "proxy.so", library)
+            if MAC:
+                signed = True
+                resign(client)
+                record["signed_sha256"] = digest(client / EXECUTABLE)
+                write_state(directory, record)
         except Exception:
             # A failed install must leave a usable vanilla game and recoverable settings.
             atomic_copy(stage / "original.so", library)
+            if signed:
+                restore_signature(client, directory)
             record["installed"] = False
             write_state(directory, record)
             if old_pack.exists():
@@ -178,7 +231,7 @@ def install(client, proxy, pack):
 def uninstall(client):
     require_stopped(client)
     directory, saved = state(client)
-    library, backup = client / "libSDL3.so", client / BACKUP
+    library, backup = client / LIBRARY, client / BACKUP
     if not saved:
         if is_proxy(library):
             raise ValueError("Cannot restore SDL3 without an Aurora recovery record")
@@ -191,13 +244,18 @@ def uninstall(client):
         if not backup.is_file() or digest(backup) != saved.get("original_sha256"):
             raise ValueError("Original SDL3 backup is missing or changed; repair Hytale to restore it")
         atomic_copy(backup, library)
+        # Hypixel's signature only goes back onto the executable it was taken from, never an updated one.
+        if MAC and digest(client / EXECUTABLE) == saved.get("signed_sha256"):
+            restore_signature(client, directory)
     # If an update already replaced the proxy, retain the newer game library.
     if backup.is_file() and digest(backup) == saved.get("original_sha256"):
         backup.unlink()
+    if MAC:
+        shutil.rmtree(directory / "signature", ignore_errors=True)
     saved["installed"] = False
     write_state(directory, saved)
 
 
 def installed(client):
     _, saved = state(client)
-    return bool(saved and saved.get("installed") and is_proxy(client / "libSDL3.so"))
+    return bool(saved and saved.get("installed") and is_proxy(client / LIBRARY))

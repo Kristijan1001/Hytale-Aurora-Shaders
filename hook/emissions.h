@@ -1,4 +1,4 @@
-#define EMISSION_UNIT 17
+#define EMISSION_UNIT (HOOK_UNIT_BASE + 1)
 #define EMISSION_VARIANTS 16
 typedef struct { unsigned hash, tint, color, average; } EmissionRecord;
 static EmissionRecord *g_emissions;

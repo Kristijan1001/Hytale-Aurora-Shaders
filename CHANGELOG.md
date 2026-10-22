@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Added macOS support on Apple Silicon. `./install.sh` builds the SDL3 hook for the native client, installs it inside `Hytale.app` and re-signs the app so the game can load it; `./install.sh --uninstall` restores Hypixel's signature. Colored area lights, Coloured light fog, Path tracing, voxel scattering, GI denoising and DLSS stay off on macOS, whose OpenGL 4.1 has no image load/store. See [macOS notes](docs/macos.md).
+- The Linux hook now advances its frame counter every frame, as the Windows hook does. Before, temporal reprojection kept the first frame's camera and `uHookFrame` stayed at 0.
+
 ## 1.5.2
 
 - Fixed Coloured light fog flickering in 8x8-pixel squares near lights, introduced in 1.5.1. The fog evaluates every step again; the Area light budget keeps it fast near lava.
