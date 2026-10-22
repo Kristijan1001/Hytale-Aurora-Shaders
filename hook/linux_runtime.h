@@ -260,5 +260,6 @@ __declspec(dllexport) bool SDL_GL_SwapWindow(void *window)
         }
         if (g_ovBits) menu_draw(sw, sh);
     }
+    g_frame++; // as wglSwapBuffers does: temporal history and uHookFrame advance per presented frame
     return linux_sdl_swap ? linux_sdl_swap(window) : false;
 }
